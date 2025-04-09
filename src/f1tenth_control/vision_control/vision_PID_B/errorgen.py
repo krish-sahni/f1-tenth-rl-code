@@ -54,10 +54,11 @@ class lanenet_detector():
         self.error = None
 
         # parameters for error generation
-        self.lookaheaddist = 1
+        self.lookaheaddist = 0.7
         self.offset = 25
         self.minpix = 20
         self.maxpix = 55
+        
         self.midpoint = 160
         self.publisherror = True # use to publish error
         self.publishwaypoints = False # use to publish waypoints

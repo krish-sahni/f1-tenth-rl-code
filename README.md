@@ -351,9 +351,9 @@ Feel free to play with these values if your lane detection is offset or if you w
 
 ---
 
-### *PID Gains*
+### *Parameter Tuning*
 
-Inside *vision_lanefollower_pid.py* (where the PID is integrated with the main loop), the following parameters are crucial in how aggressively or smoothly the car responds:
+Inside *controller.py* (where the PID is integrated with the main loop), the following parameters are crucial in how aggressively or smoothly the car responds:
 
     self.KP = 0.0
     self.KI = 0.0
@@ -366,6 +366,16 @@ Inside *vision_lanefollower_pid.py* (where the PID is integrated with the main l
 - *SCALE_FACTOR*: scales the error term.
 
 Tweak these for better performance. If the vehicle oscillates too much, try lowering Kp or increasing Kd. If the vehicle fails to center itself, you might need a higher Kp or a small Ki term. This file also houses the main function, which is responsible for publishing the steering and speed ROS messages through the AckermannDriveStamped topic.
+
+The following parameters in *errorgen.py* 
+
+    self.lookaheaddist = 0.7
+    self.offset = 25
+    self.minpix = 20
+    self.maxpix = 55
+    self.midpoint = 160
+
+Can also be tuned if the target velocity of the car is changed. This decides where on the image to commpute the error from. Naturally, a faster velocity requires a further lookahead distance
 
 ---
 
@@ -430,4 +440,5 @@ Vicon controller is written by Hang Cui
 Vison-PID Starter Code A is written by Hyoungju Lim, Vikram Battalapalli, Don Lazatin, Cheng Zhu 
 
 Vision-PID Starter Code B is written by Tanvi Kulkarni, Harish Kumar Balaji, Vikram Raj Nagoor Kani, Manan Hitesh Maheshwari
+
 
