@@ -376,12 +376,12 @@ Tweak these for better performance. If the vehicle oscillates too much, try lowe
 Open each command in a *separate terminal window*, and ensure to source the workspace by running the commands in your project directory:
 
 cd ~/Project_Root_Directory
+
 chmod -R 777 ./
 
 #### *Build Workspace (not necessary if WS is placed in nx directory)*
 
 catkin_make
-
 
 ##### Terminal 1: Racecar Camera Launch
 
@@ -398,13 +398,15 @@ roslaunch racecar teleop.launch
 ##### Terminal 3: Lane Following PID Control
 
 source devel/setup.bash
+
 rosrun vision_control vision_PID_{A or B}/vision_lanefollower_pid.py
 
 ##### Terminal 4: Calcutate Error (starter code B only)
 
 
 source devel/setup.bash
-rosrun vicon_control vision_PID_B/errorgen.py
+
+rosrun vision_control vision_PID_B/errorgen.py
 
 ---
 
