@@ -1,8 +1,0 @@
-prefix=/home/nx/f1tenth_ros1_ws/install
-
-Name: vicon_control
-Description: Description of vicon_control
-Version: 1.0.0
-Cflags: 
-Libs: -L${prefix}/lib 
-Requires: 

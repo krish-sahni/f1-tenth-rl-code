@@ -35,6 +35,7 @@ They may not correspond with the lane exactly, so it is recommended to re-record
 Open each command in a *separate terminal window*, and ensure to source the workspace by running the commands in your project directory (you only need to chmod initially):
 
 cd ~/Project_Root_Directory
+
 chmod -R 777 ./
 
 #### *Build Workspace (not necessary if WS is placed in nx directory)*
@@ -45,16 +46,19 @@ catkin_make
 #### Terminal 1: Racecar Remote Launch
 
 source devel/setup.bash
+
 roslaunch racecar teleop.launch
 
 #### Terminal 2: Vicon Bridge
 
 source devel/setup.bash
+
 python3 vicon_bridge.py
 
 #### Terminal 3: Vicon Tracker Code
 
 source devel/setup.bash
+
 rosrun vicon_control/vicon_tracker_pp.py
 
 ---
@@ -382,11 +386,13 @@ catkin_make
 ##### Terminal 1: Racecar Camera Launch
 
 source devel/setup.bash
+
 roslaunch racecar sensors.launch
 
 ##### Terminal 2: Racecar Remote Launch
 
 source devel/setup.bash
+
 roslaunch racecar teleop.launch
 
 ##### Terminal 3: Lane Following PID Control

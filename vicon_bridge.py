@@ -77,6 +77,8 @@ def main():
             x_p   = 0.43 # body origin move w.r.t. global frame along x 
             y_p   = 0.54  
 
+            #Prev parameters
+
             # ----------------------------------------------------------------------------------------------
 
             sin_theta = np.sin(theta)

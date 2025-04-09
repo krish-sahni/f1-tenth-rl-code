@@ -42,7 +42,7 @@ class vehicleController():
         # for 0.03 velocity
 
         #TODO: Change parameters
-        self.KP = 
+        self.KP =
         self.KI = 
         self.KD = 
         self.MIN_ANGLE = -0.3

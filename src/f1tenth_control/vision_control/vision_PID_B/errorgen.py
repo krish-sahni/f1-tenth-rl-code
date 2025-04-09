@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import time
 import math
 import numpy as np
@@ -52,16 +54,28 @@ class lanenet_detector():
         self.error = None
 
         # parameters for error generation
-        self.lookaheaddist = 0.7
+        self.lookaheaddist = 1
         self.offset = 25
         self.minpix = 20
         self.maxpix = 55
         self.midpoint = 160
         self.publisherror = True # use to publish error
         self.publishwaypoints = False # use to publish waypoints
-        self.displaywaypoints = True # use to display waypoints in rqt
+        self.displaywaypoints = False # use to display waypoints in rqt
 
+        # To store previous waypoints
+        self.previouswaypoints = None
+        self.previouserror = None
+        self.error = None
+        # Parameters for Colour masking
+        self.saturation_high = 255
+        self.saturation_low = 80
+        self.hue_high = 100
+        self.hue_low = 50
+        self.lightness_high = 255
+        self.lightness_low = 0
 
+    
     # Call back funtion to get data and trigger lane detection
     def img_callback(self, data):
 
@@ -137,7 +151,7 @@ class lanenet_detector():
         img_8bit_unsigned = cv2.convertScaleAbs(result_img)
 
         _, binary_output = cv2.threshold(img_8bit_unsigned, thresh_min, thresh_max, cv2.THRESH_BINARY)
-        ####
+        
         return binary_output
 
 
@@ -165,7 +179,7 @@ class lanenet_detector():
 
         # 4. Apply the threshold on the S channel
         binary_output = np.zeros_like(S)
-        binary_output[(S >= thresh[0]) & (S <= thresh[1])] = 1
+        binary_output[(S >= thresh[0]) & (S <= thresh[1]) & (H >= self.hue_low) & (H <= self.hue_high) & (L >= self.lightness_low) & (L <= self.lightness_high)] = 1
 
         return binary_output
  
@@ -265,7 +279,7 @@ class lanenet_detector():
             if minpix < count < maxpix:
                 x_coords_in_row = nonzerox[nonzeroy == row]
                 closest_x = x_coords_in_row[np.argmin(np.abs(x_coords_in_row - centerx_base))]
-                if(np.abs(centerx_base - closest_x) <= 50 ): # and row > 20:
+                if(np.abs(centerx_base - closest_x) <= 100 ): # and row > 20:
                     # print(x_coords_in_row[len(x_coords_in_row) // 2])
                     # waypoints.append((closest_x,row))
                     waypoints.append((x_coords_in_row[len(x_coords_in_row) // 2],row))
@@ -297,7 +311,7 @@ class lanenet_detector():
             if self.publisherror:
                 self.error_pub.publish(Float32(self.error))
             print(f"lane detected, error = {self.error}")
-
+            self.previouswaypoints = waypoints
             if self.displaywaypoints:
                 detected_point = waypoints[point]
                 offset_point = (self.midpoint + self.offset, waypoints[point][1])
@@ -318,21 +332,21 @@ class lanenet_detector():
                     pose.pose.position.y = wp[1]
                     pose.pose.position.z = 0
                     path_msg_birdseye.poses.append(pose)
-                self.previouswaypoints = waypoints
+
                 self.pub_waypoints_birdseye.publish(path_msg_birdseye)
         
         elif self.previouswaypoints != None:
             
             length = len(self.previouswaypoints)
             point = length - round( length * self.lookaheaddist)
-            detected_point_x = waypoints[point][0]
+            detected_point_x = self.previouswaypoints[point][0]
             self.error = self.midpoint - detected_point_x + self.offset
             if self.publisherror:
                 self.error_pub.publish(Float32(self.error))
             print(f" Unable to detect lanes, prev error = {self.error}")
 
             if self.displaywaypoints:
-                detected_point = waypoints[point]
+                detected_point = self.previouswaypoints[point]
                 offset_point = (self.midpoint + self.offset, waypoints[point][1])
                 cv2.circle(waypoints_img, detected_point, radius=2, color=(0, 0, 255), thickness=-1)
                 cv2.circle(waypoints_img, offset_point, radius=2, color=(0, 255, 0), thickness=-1)

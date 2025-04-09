@@ -1,11 +1,7 @@
-import rospy
-import numpy as np
-import argparse
+#!/usr/bin/env python3
 
-# from gazebo_msgs.msg import  ModelState
+import rospy
 from controller import vehicleController
-import time
-from util import euler_to_quaternion, quaternion_to_euler
 
 def run_model():
     rospy.init_node("model_dynamics")
