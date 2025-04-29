@@ -36,12 +36,14 @@ class MPCController:
         # build MPC QP
         self.setup_mpc()
 
+        self.last_time = rospy.Time.now()
 
         # ROS interface
         rospy.Subscriber('/car_state', Float64MultiArray, self.odom_callback)
         self.drive_pub = rospy.Publisher('/vesc/low_level/ackermann_cmd_mux/input/navigation',
                                  AckermannDriveStamped,
                                  queue_size=1)
+        
 
     def read_waypoints(self):
         fn = os.path.join(os.path.dirname(__file__),
@@ -185,6 +187,10 @@ class MPCController:
         self.Cd = f*self.dt - (A@x_ref + B@u_ref)*self.dt
 
     def odom_callback(self, msg):
+        now = rospy.Time.now()
+        if (now - self.last_time).to_sec() < self.dt:
+            return
+        self.last_time = now
         print("[ODOM CALLBACK CALLED]")
         x = msg.data[0]
         y = msg.data[1]
@@ -215,11 +221,15 @@ class MPCController:
         if self.prob.status not in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
             rospy.logwarn("MPC solve failed")
             return
-
+        if self.u.value is None:
+            rospy.logwarn("MPC solution returned None")
+            return
         steer = float(self.u.value[0,0])
         accel = float(self.u.value[1,0])
         speed = np.clip(self.current_pose[3] + accel*self.dt,
                         0, self.max_speed)
+        steer = np.clip(steer, -0.3, 0.3)  # F1TENTH hardware constraint
+
 
         cmd = AckermannDriveStamped()
         cmd.header.stamp = rospy.get_rostime()
