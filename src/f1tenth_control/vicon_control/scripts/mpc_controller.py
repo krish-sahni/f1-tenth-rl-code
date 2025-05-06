@@ -7,8 +7,10 @@ import cvxpy as cp
 import math
 import tf
 from scipy.spatial import KDTree
-from std_msgs.msg import Float64MultiArray
-from ackermann_msgs.msg import AckermannDriveStamped
+from nav_msgs.msg import Odometry
+from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+from geometry_msgs.msg import PointStamped
+from std_msgs.msg import String, Bool, Float32, Float64, Float64MultiArray
 
 class MPCController:
     def __init__(self):
@@ -17,33 +19,48 @@ class MPCController:
         # Vehicle params
         self.wheelbase  = 0.325     # m
         self.max_steer  = np.deg2rad(30)
-        self.max_speed  = 0.5       # m/s
+        self.max_speed  = 0.4       # m/s
         self.max_accel  = 3.0       # m/s²
         self.dt         = 0.1       # s
 
         # MPC params
         self.N  = 10
-        self.Q  = np.diag([10., 10., 5., 1.])
-        self.R  = np.diag([100., 10.])
+        self.Q  = np.diag([50., 50., 20., 5.])
+        self.R  = np.diag([50., 5.])
         self.Rd = np.diag([10., 1.])
 
-        
+        #Obstacles
+        self.obstacles = [(1.8101,1.6861)]
+        self.obstacle_radius = 0.3
+        self.safety_margin  = 0.1
 
         # state + waypoints
         self.current_pose = np.zeros(4)
         self.read_waypoints()   # loads self.waypoints + self.waypoint_tree
 
+        #Obstacle Subscriber
+        rospy.Subscriber('/obstacles', PointStamped, self.obstacle_callback)
+
         # build MPC QP
         self.setup_mpc()
 
-        self.last_time = rospy.Time.now()
 
         # ROS interface
-        rospy.Subscriber('/car_state', Float64MultiArray, self.odom_callback)
+        # rospy.Subscriber('/car_1/base/odom',
+        #                  Odometry,
+        #                  self.odom_callback)
+
+        self.vicon_sub = rospy.Subscriber('//car_state', Float64MultiArray, self.odom_callback)
+
+
         self.drive_pub = rospy.Publisher('/vesc/low_level/ackermann_cmd_mux/input/navigation',
                                  AckermannDriveStamped,
                                  queue_size=1)
-        
+
+    def obstacle_callback(self, msg):
+        """ Keep only the most recent obstacle. """
+        self.obstacles = [(msg.point.x, msg.point.y)]
+
 
     def read_waypoints(self):
         fn = os.path.join(os.path.dirname(__file__),
@@ -51,7 +68,7 @@ class MPCController:
         pts = []
         with open(fn,'r') as f:
             for row in csv.reader(f):
-                x,y,_ = row
+                x,y = row
                 pts.append((float(x), float(y)))
 
         pts = np.array(pts)
@@ -85,8 +102,24 @@ class MPCController:
         self.Bd_p     = cp.Parameter((4,2))
         self.Cd_p     = cp.Parameter(4)
 
+        self.hs_param = cp.Parameter((2,3))
+
         cost = 0
         cons = [ self.x[:,0] == self.x0 ]
+
+        #obstacle avoidance constraints
+        for k in range(self.N+1):
+            # x_k, y_k
+            cons += [
+              self.hs_param[0,0]*self.x[0,k]
+            + self.hs_param[0,1]*self.x[1,k]
+            + self.hs_param[0,2] >= 0
+            #   self.hs_param[1,0]*self.x[0,k]
+            # + self.hs_param[1,1]*self.x[1,k]
+            # + self.hs_param[1,2] >= 0
+            ]
+
+
         for k in range(self.N):
             cost += cp.quad_form(self.x[:,k]   - self.ref_traj[:,k], self.Q)
             cost += cp.quad_form(self.u[:,k], self.R)
@@ -97,15 +130,15 @@ class MPCController:
             x_next = ( self.Ad_p @ self.x[:,k]
                      + self.Bd_p @ self.u[:,k]
                      + self.Cd_p )
-            cons += [ self.x[:,k+1] == x_next]
-                    #   cp.abs(self.u[0,k])   <= self.max_steer,
-                    #   self.u[1,k]           <= self.max_accel,
-                    #   self.u[1,k]           >= -self.max_accel,
+            cons += [ self.x[:,k+1] == x_next,
+                      cp.abs(self.u[0,k])   <= self.max_steer,
+                      self.u[1,k]           <= self.max_accel,
+                      self.u[1,k]           >= -self.max_accel]
                     #   self.x[3,k]           >= -0.05,
                     #   self.x[3,k]           <= self.max_speed]
 
         cost += cp.quad_form(self.x[:,self.N] - self.ref_traj[:,self.N], self.Q)
-        print(f"cons: {cons}")
+        # print(f"cons: {cons}")
         self.prob = cp.Problem(cp.Minimize(cost), cons)
 
 
@@ -185,25 +218,126 @@ class MPCController:
           0
         ])
         self.Cd = f*self.dt - (A@x_ref + B@u_ref)*self.dt
+    
+    def get_avoidance_side(self, ox, oy):
+        """Returns 'left' or 'right' based on waypoint positions."""
+        waypoint_x = self.ref_traj.value[0, :]  # X of all waypoints
+        waypoint_y = self.ref_traj.value[1, :]  # Y of all waypoints
+        
+        # Vector from obstacle to average waypoint
+        avg_x = np.mean(waypoint_x)
+        avg_y = np.mean(waypoint_y)
+        dx = avg_x - ox
+        dy = avg_y - oy
+        
+        # Cross product with car's heading
+        heading_vec = (math.cos(self.current_pose[2]), math.sin(self.current_pose[2]))
+        cross = dx * heading_vec[1] - dy * heading_vec[0]
+        return 'left' if cross > 0 else 'right'
 
+
+    
+    def compute_halfspaces(self, ox, oy, px, py):
+        """Returns two (a,b,c) triples where the first is the left tangent line and the second is a dummy."""
+        # Current car position (px, py), yaw from current_pose
+        yaw = self.current_pose[2]
+        fx = px + 0.2 * math.cos(yaw)
+        fy = py + 0.2 * math.sin(yaw)
+        R = self.obstacle_radius + self.safety_margin
+
+        def get_tangents(ox, oy, fx, fy, R):
+            px_prime = fx - ox
+            py_prime = fy - oy
+            d_squared = px_prime**2 + py_prime**2
+            d = math.sqrt(d_squared)
+            if d < R:
+                return None, None
+            a = px_prime
+            b = py_prime
+            R_squared = R**2
+            sqrt_term = math.sqrt(d_squared - R_squared)
+            tx1_prime = (R_squared * a + R * b * sqrt_term) / d_squared
+            ty1_prime = (R_squared * b - R * a * sqrt_term) / d_squared
+            tx2_prime = (R_squared * a - R * b * sqrt_term) / d_squared
+            ty2_prime = (R_squared * b + R * a * sqrt_term) / d_squared
+            tx1 = tx1_prime + ox
+            ty1 = ty1_prime + oy
+            tx2 = tx2_prime + ox
+            ty2 = ty2_prime + oy
+            return (tx1, ty1), (tx2, ty2)
+
+        tangents = get_tangents(ox, oy, fx, fy, R)
+        if tangents[0] is None:
+            return (0.0, 0.0, 1e6), (0.0, 0.0, 1e6)
+        
+        (tx1, ty1), (tx2, ty2) = tangents
+
+        # Determine left tangent using cross product
+        dir_vec = (math.cos(yaw), math.sin(yaw))
+        vec1 = (tx1 - fx, ty1 - fy)
+        cross1 = dir_vec[0] * vec1[1] - dir_vec[1] * vec1[0]
+        vec2 = (tx2 - fx, ty2 - fy)
+        cross2 = dir_vec[0] * vec2[1] - dir_vec[1] * vec2[0]
+
+        tx, ty = None, None
+        if cross1 > 0 and cross2 > 0:
+            tx, ty = (tx1, ty1) if cross1 > cross2 else (tx2, ty2)
+            txr, tyr = (tx2, ty2) if cross1 > cross2 else (tx1, ty1)
+        elif cross1 > 0:
+            tx, ty = tx1, ty1
+            txr, tyr = tx2, ty2
+        elif cross2 > 0:
+            tx, ty = tx2, ty2
+            txr, tyr = tx1, ty1
+
+        else:
+            return (0.0, 0.0, 1e6), (0.0, 0.0, 1e6)
+
+        # Line equation through (fx, fy) and (tx, ty)
+        a_line = ty - fy
+        b_line = -(tx - fx)
+        c_line = tx * fy - fx * ty
+
+        a_line_right = tyr - fy
+        b_line_right = -(txr - fx)
+        c_line_right = txr * fy - fx * tyr
+
+        # Ensure valid region is outside the obstacle
+        value = a_line * ox + b_line * oy + c_line
+        if value > 0:
+            a_line, b_line, c_line = -a_line, -b_line, -c_line
+
+        value = a_line_right * ox + b_line_right * oy + c_line_right
+        if value > 0:
+            a_line_right, b_line_right, c_line_right = -a_line_right, -b_line_right, -c_line_right
+        
+        side = self.get_avoidance_side(ox,oy)
+        print(f"side: {side}")
+        if(side == 'left'):
+            return (0,0,1e6), (a_line_right, b_line_right, c_line_right)
+        elif(side == 'right'):
+            return (a_line, b_line, c_line), (0,0,1e6)
+
+    
     def odom_callback(self, msg):
-        now = rospy.Time.now()
-        if (now - self.last_time).to_sec() < self.dt:
-            return
-        self.last_time = now
         print("[ODOM CALLBACK CALLED]")
+        # x = msg.pose.pose.position.x
+        # y = msg.pose.pose.position.y
+        # q = msg.pose.pose.orientation
         x = msg.data[0]
         y = msg.data[1]
-        vx = msg.data[2]
-        yaw = np.radians(msg.data[3])  # Convert from degrees to radians
+        yaw = msg.data[3]
+        v = msg.data[4]
+        
+        # _,_,yaw = tf.transformations.euler_from_quaternion(
+        #              [q.x,q.y,q.z,q.w])
+        self.current_pose = np.array([
+            x,
+            y,
+            yaw,
+            v
+        ])
 
-        offset = 0.15  # meters
-        x -= offset * np.cos(yaw)
-        y -= offset * np.sin(yaw)
-
-        self.current_pose = np.array([x, y, yaw, vx])
-
-        # build ref + linearizelectrical & Computer Eng Bldg W 05/14/2025 7:0
         ref = self.get_reference_trajectory()
         self.x0.value       = self.current_pose
         self.ref_traj.value = ref
@@ -216,20 +350,33 @@ class MPCController:
         self.Bd_p.value = self.Bd
         self.Cd_p.value = self.Cd
 
+        print(f"obs: {self.obstacles}, x: {x}, y: {y}")
+        if self.obstacles:
+            ox, oy = self.obstacles[0]
+        else:
+            # no obstacle → a trivial “always‐true” pair
+            self.hs_param.value = np.array([[0,0,1e6],
+                                            [0,0,1e6]])
+        # if there is one obs:
+        if self.obstacles:
+            a1,b1,c1, a2,b2,c2 = (*self.compute_halfspaces(ox,oy, x,y)[0],
+                                 *self.compute_halfspaces(ox,oy, x,y)[1])
+            self.hs_param.value = np.array([[a1,b1,c1],
+                                            [a2,b2,c2]])
+            print(f"a1,b1,c1: {a1},{b1},{c1}")
+            print(f"a2,b2,c2: {a2},{b2},{c2}")
+            
+        
         self.prob.solve(solver=cp.OSQP, warm_start=True, eps_abs=1e-3, eps_rel=1e-3, max_iter=5000, verbose=False)
         print(f"accel: {self.u.value[1,0]}, angle: {self.u.value[0,0]}")
         if self.prob.status not in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
             rospy.logwarn("MPC solve failed")
             return
-        if self.u.value is None:
-            rospy.logwarn("MPC solution returned None")
-            return
+
         steer = float(self.u.value[0,0])
         accel = float(self.u.value[1,0])
         speed = np.clip(self.current_pose[3] + accel*self.dt,
                         0, self.max_speed)
-        steer = np.clip(steer, -0.3, 0.3)  # F1TENTH hardware constraint
-
 
         cmd = AckermannDriveStamped()
         cmd.header.stamp = rospy.get_rostime()
@@ -237,6 +384,7 @@ class MPCController:
         cmd.drive.steering_angle = steer
         cmd.drive.speed = speed
         self.drive_pub.publish(cmd)
+
 
 if __name__=='__main__':
     try:

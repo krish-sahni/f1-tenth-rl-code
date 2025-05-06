@@ -4,6 +4,7 @@ from pymavlink import mavutil
 import sys, os
 import numpy as np
 from std_msgs.msg import Float64MultiArray
+import math
 
 # Conversion to -pi to pi
 def pi_2_pi(angle):
@@ -28,7 +29,7 @@ def main():
     data.data = [0, ] * (9 + 2 + 4 + 1)
 
     data_path = Float64MultiArray()
-    data_path.data = [0, ] * 4
+    data_path.data = [0, ] * 5
 
     while not rospy.is_shutdown():
 
@@ -91,6 +92,7 @@ def main():
             data_path.data[1] = y_new
             data_path.data[2] = yaw_new
             data_path.data[3] = round(np.degrees(yaw_new))
+            data_path.data[4] = math.hypot(msg.vx, msg.vy)
             print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
             print("\n")
 
