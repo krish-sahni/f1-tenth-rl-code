@@ -12,7 +12,7 @@ class YoloTrafficSignNode:
         rospy.init_node('yolo_traffic_sign_node')
 
         # Load your YOLO model (edit path if needed)
-        self.model = YOLO('yolov8n.pt')  # Or your trained traffic sign model
+        self.model = YOLO('yolov8n.pt') 
         self.bridge = CvBridge()
 
         # Publishers
