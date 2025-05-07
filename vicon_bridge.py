@@ -92,7 +92,7 @@ def main():
             data_path.data[1] = y_new
             data_path.data[2] = yaw_new
             data_path.data[3] = round(np.degrees(yaw_new))
-            data_path.data[4] = math.hypot(msg.vx, msg.vy)
+            data_path.data[4] = math.hypot(msg.vx/1000, msg.vy/1000)
             print("X_new, Y_new, Yaw_new_deg:", x_new, y_new, np.degrees(yaw_new))
             print("\n")
 

@@ -30,7 +30,7 @@ class MPCController:
         self.Rd = np.diag([10., 1.])
 
         #Obstacles
-        self.obstacles = [(1.8101,1.6861)]
+        self.obstacles = []
         self.obstacle_radius = 0.3
         self.safety_margin  = 0.1
 
@@ -50,7 +50,7 @@ class MPCController:
         #                  Odometry,
         #                  self.odom_callback)
 
-        self.vicon_sub = rospy.Subscriber('//car_state', Float64MultiArray, self.odom_callback)
+        self.vicon_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.odom_callback)
 
 
         self.drive_pub = rospy.Publisher('/vesc/low_level/ackermann_cmd_mux/input/navigation',
@@ -68,8 +68,8 @@ class MPCController:
         pts = []
         with open(fn,'r') as f:
             for row in csv.reader(f):
-                x,y = row
-                pts.append((float(x), float(y)))
+                x,y,yaw = row
+                pts.append((float(x), float(y), float(yaw)))
 
         pts = np.array(pts)
         pts = pts[::5]  # <--- Keep every 5th waypoint only (adjust if needed)
@@ -183,13 +183,13 @@ class MPCController:
         print(f"waypoints: {pts}")
         
         ref = np.zeros((4, self.N+1))
-        for k,(x_ref,y_ref) in enumerate(pts):
-            if k>0:
-                dx,dy = pts[k]-pts[k-1]
-                raw_yaw = math.atan2(dy, dx)
-                yaw_ref = self.unwrap_angle(raw_yaw, ref[2, k-1])
-            else:
-                yaw_ref = self.current_pose[2]
+        for k,(x_ref,y_ref, yaw_ref) in enumerate(pts):
+            # if k>0:
+            #     dx,dy = pts[k]-pts[k-1]
+            #     raw_yaw = math.atan2(dy, dx)
+            #     yaw_ref = self.unwrap_angle(raw_yaw, ref[2, k-1])
+            # else:
+            #     yaw_ref = self.current_pose[2]
             ref[:,k] = [x_ref, y_ref, yaw_ref, self.max_speed]
         return ref
 
@@ -324,10 +324,17 @@ class MPCController:
         # x = msg.pose.pose.position.x
         # y = msg.pose.pose.position.y
         # q = msg.pose.pose.orientation
-        x = msg.data[0]
-        y = msg.data[1]
-        yaw = msg.data[3]
-        v = msg.data[4]
+
+
+        # x = msg.data[0]
+        # y = msg.data[1]
+        # yaw = msg.data[3]
+        # v = msg.data[4]
+
+        x = 0
+        y = 0
+        yaw = 0.1
+        v = 0
         
         # _,_,yaw = tf.transformations.euler_from_quaternion(
         #              [q.x,q.y,q.z,q.w])
@@ -341,6 +348,7 @@ class MPCController:
         ref = self.get_reference_trajectory()
         self.x0.value       = self.current_pose
         self.ref_traj.value = ref
+        print(f"ref: {ref}")
         if self.current_pose[3] < 0.05:
             self.current_pose[3] = 0.05
 
@@ -383,7 +391,7 @@ class MPCController:
         cmd.header.frame_id = "f1tenth_control"
         cmd.drive.steering_angle = steer
         cmd.drive.speed = speed
-        self.drive_pub.publish(cmd)
+        # self.drive_pub.publish(cmd)
 
 
 if __name__=='__main__':
