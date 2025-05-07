@@ -51,7 +51,14 @@ class MPCController:
         #                  self.odom_callback)
 
         self.vicon_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.odom_callback)
-
+        data_path = Float64MultiArray()
+        data_path.data = [0.0] * 5
+        data_path.data[0] = 0
+        data_path.data[1] =0
+        data_path.data[2] = 0
+        data_path.data[3] =0
+        data_path.data[4] = 0
+        self.odom_callback(data_path)
 
         self.drive_pub = rospy.Publisher('/vesc/low_level/ackermann_cmd_mux/input/navigation',
                                  AckermannDriveStamped,
@@ -72,7 +79,7 @@ class MPCController:
                 pts.append((float(x), float(y), float(yaw)))
 
         pts = np.array(pts)
-        pts = pts[::5]  # <--- Keep every 5th waypoint only (adjust if needed)
+        pts = pts[::3]  # <--- Keep every 5th waypoint only (adjust if needed)
 
         self.waypoints = pts
         self.waypoint_tree = KDTree(self.waypoints)
@@ -172,7 +179,7 @@ class MPCController:
         return prev_angle + delta
 
     def get_reference_trajectory(self):
-        _, idx = self.waypoint_tree.query(self.current_pose[:2])
+        _, idx = self.waypoint_tree.query(self.current_pose[:3])
         print(f"closest waypoint: {idx}")
 
         inds = np.clip(np.arange(idx, idx+self.N+1),
@@ -190,6 +197,7 @@ class MPCController:
             #     yaw_ref = self.unwrap_angle(raw_yaw, ref[2, k-1])
             # else:
             #     yaw_ref = self.current_pose[2]
+            yaw_ref = np.deg2rad(yaw_ref)
             ref[:,k] = [x_ref, y_ref, yaw_ref, self.max_speed]
         return ref
 
@@ -333,7 +341,7 @@ class MPCController:
 
         x = 0
         y = 0
-        yaw = 0.1
+        yaw = np.deg2rad(-50)
         v = 0
         
         # _,_,yaw = tf.transformations.euler_from_quaternion(
